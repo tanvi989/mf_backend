@@ -1,7 +1,9 @@
 from fastapi import APIRouter, UploadFile, File
-from fastapi.responses import JSONResponse
+from fastapi.responses import StreamingResponse
+from io import BytesIO
 from app.services.glasses_service import GlassesService
 from app.services.glasses_removal import remove_glasses_service
+
 router = APIRouter(
     prefix="/glasses",
     tags=["Glasses Detection", "Glasses Removal"]
@@ -36,17 +38,17 @@ async def detect_glasses(file: UploadFile = File(...)):
 @router.post("/remove")
 async def remove_glasses(image: UploadFile = File(...)):
     try:
+        # Read uploaded image
         image_bytes = await image.read()
 
-        edited_base64 = remove_glasses_service(image_bytes)
+        # Call service to remove glasses (returns PNG bytes)
+        edited_bytes = remove_glasses_service(image_bytes)
 
-        return JSONResponse({
-            "success": True,
-            "edited_image_base64": edited_base64
-        })
+        # Return as PNG directly
+        return StreamingResponse(BytesIO(edited_bytes), media_type="image/png")
 
     except Exception as e:
-        return JSONResponse({
+        return {
             "success": False,
             "error": str(e)
-        }, status_code=500)
+        }
