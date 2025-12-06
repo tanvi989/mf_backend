@@ -1,0 +1,52 @@
+{
+  "default": { "mm_per_pixel": 0.25 },
+
+  "mobile_apple_iphone_14_pro": { "mm_per_pixel": 0.048 },
+  "mobile_apple_iphone_13": { "mm_per_pixel": 0.050 },
+  "mobile_apple_iphone_12": { "mm_per_pixel": 0.050 },
+  "mobile_apple_iphone_11": { "mm_per_pixel": 0.051 },
+
+  "mobile_samsung_galaxy_s23_ultra": { "mm_per_pixel": 0.047 },
+  "mobile_samsung_galaxy_s22": { "mm_per_pixel": 0.048 },
+  "mobile_samsung_galaxy_s21_fe": { "mm_per_pixel": 0.049 },
+
+  "mobile_google_pixel_8_pro": { "mm_per_pixel": 0.049 },
+  "mobile_google_pixel_7": { "mm_per_pixel": 0.050 },
+
+  "mobile_oneplus_11_5g": { "mm_per_pixel": 0.049 },
+
+  "mobile_xiaomi_13_pro": { "mm_per_pixel": 0.048 },
+
+  "mobile_oppo_find_x6_pro": { "mm_per_pixel": 0.049 },
+  "mobile_vivo_x90_pro": { "mm_per_pixel": 0.050 },
+  "mobile_realme_gt_2_pro": { "mm_per_pixel": 0.051 },
+  "mobile_motorola_edge_40": { "mm_per_pixel": 0.052 },
+  "mobile_huawei_p60_pro": { "mm_per_pixel": 0.049 },
+
+  "tablet_apple_ipad_pro_12_9_m2": { "mm_per_pixel": 0.045 },
+  "tablet_apple_ipad_air_5": { "mm_per_pixel": 0.047 },
+  "tablet_samsung_galaxy_tab_s9": { "mm_per_pixel": 0.046 },
+  "tablet_samsung_galaxy_tab_s8": { "mm_per_pixel": 0.047 },
+  "tablet_lenovo_tab_p12_pro": { "mm_per_pixel": 0.048 },
+  "tablet_microsoft_surface_pro_9": { "mm_per_pixel": 0.050 },
+  "tablet_huawei_matepad_pro_12_6": { "mm_per_pixel": 0.048 },
+  "tablet_xiaomi_pad_6": { "mm_per_pixel": 0.048 },
+
+  "laptop_apple_macbook_air_m2": { "mm_per_pixel": 0.082 },
+  "laptop_apple_macbook_pro_14": { "mm_per_pixel": 0.083 },
+  "laptop_dell_xps_13_plus": { "mm_per_pixel": 0.104 },
+  "laptop_hp_spectre_x360_14": { "mm_per_pixel": 0.086 },
+  "laptop_lenovo_yoga_9i": { "mm_per_pixel": 0.088 },
+  "laptop_asus_zenbook_14": { "mm_per_pixel": 0.095 },
+  "laptop_microsoft_surface_laptop_5": { "mm_per_pixel": 0.085 },
+  "laptop_acer_swift_5": { "mm_per_pixel": 0.091 },
+  "laptop_hp_envy_13": { "mm_per_pixel": 0.51 },
+  "laptop_lenovo_thinkpad_x1_carbon": { "mm_per_pixel": 0.090 },
+
+  "webcam_logitech_brio_4k": { "mm_per_pixel": 0.039 },
+  "webcam_logitech_c920": { "mm_per_pixel": 0.045 },
+  "webcam_razer_kiyo_pro": { "mm_per_pixel": 0.039 },
+  "webcam_microsoft_lifecam_studio": { "mm_per_pixel": 0.048 },
+  "webcam_aukey_fhd_1080p": { "mm_per_pixel": 0.046 },
+  "webcam_anker_powerconf_c302": { "mm_per_pixel": 0.039 }
+}
