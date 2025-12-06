@@ -10,3 +10,6 @@ numpy
 mediapipe
 scikit-image
 dlib
+google-genai
+python-dotenv
+protobuf

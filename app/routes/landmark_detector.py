@@ -1,5 +1,5 @@
 from fastapi import APIRouter, UploadFile, File
-from services.landmark_service import LandmarkService
+from app.services.landmark_service import LandmarkService
 
 router = APIRouter(
     prefix="/landmarks",

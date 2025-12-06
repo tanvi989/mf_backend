@@ -1,4 +1,4 @@
-from glasses.detector import detector
+from app.glasses.detector import detector
 from PIL import Image
 import io
 
