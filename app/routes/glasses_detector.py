@@ -16,14 +16,14 @@ async def detect_glasses(file: UploadFile = File(...)):
 
         result = GlassesService.detect(image_bytes)
 
-        # If glasses detected → Remove them using Gemini
         if result["glasses_detected"]:
-            edited_bytes = GlassesService.remove_glasses(image_bytes)
+            edited_b64 = GlassesService.remove_glasses(image_bytes)
+
             return {
                 "success": True,
                 "glasses_detected": True,
                 "confidence": result["confidence"],
-                "edited_image_base64": edited_bytes.decode("latin1")  # send raw bytes
+                "edited_image_base64": edited_b64
             }
 
         return {
@@ -34,7 +34,6 @@ async def detect_glasses(file: UploadFile = File(...)):
 
     except Exception as e:
         return {"success": False, "error": str(e)}
-
 @router.post("/remove")
 async def remove_glasses(image: UploadFile = File(...)):
     try:
