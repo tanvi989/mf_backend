@@ -1,5 +1,7 @@
 from fastapi import APIRouter, UploadFile, File
-from fastapi.responses import StreamingResponse
+from fastapi.responses import StreamingResponse, JSONResponse
+from PIL import Image
+import base64
 from io import BytesIO
 from app.services.glasses_service import GlassesService
 from app.services.glasses_removal import remove_glasses_service
@@ -34,20 +36,37 @@ async def detect_glasses(file: UploadFile = File(...)):
 
     except Exception as e:
         return {"success": False, "error": str(e)}
+    
+
+def prepare_png_base64(edited_bytes: bytes) -> str:
+    """
+    Ensure the bytes are saved as a proper PNG and encoded as Base64.
+    """
+    img = Image.open(BytesIO(edited_bytes))
+    buffer = BytesIO()
+    img.save(buffer, format="PNG")
+    buffer.seek(0)
+    return base64.b64encode(buffer.getvalue()).decode()
+ 
 @router.post("/remove")
 async def remove_glasses(image: UploadFile = File(...)):
     try:
         # Read uploaded image
         image_bytes = await image.read()
 
-        # Call service to remove glasses (returns PNG bytes)
+        # Call service to remove glasses → returns edited PNG bytes
         edited_bytes = remove_glasses_service(image_bytes)
 
-        # Return as PNG directly
-        return StreamingResponse(BytesIO(edited_bytes), media_type="image/png")
+        # Convert PNG bytes to base64 string
+        edited_base64 = base64.b64encode(edited_bytes).decode("utf-8")
+
+        return JSONResponse({
+            "success": True,
+            "edited_image_base64": edited_base64
+        })
 
     except Exception as e:
-        return {
+        return JSONResponse({
             "success": False,
             "error": str(e)
-        }
+        })

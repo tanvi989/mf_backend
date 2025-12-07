@@ -1,8 +1,6 @@
 import os
 import base64
-from io import BytesIO
 from google import genai
-
 
 def get_gemini_client():
     api_key = os.getenv("GOOGLE_API_KEY")
@@ -10,20 +8,16 @@ def get_gemini_client():
 
 
 def png_to_base64(image_bytes: bytes) -> str:
+    """Encode image bytes to Base64 string."""
     return base64.b64encode(image_bytes).decode("utf-8")
 
 
-def base64_to_png(base64_str: str) -> bytes:
-    return base64.b64decode(base64_str)
-
-
-def remove_glasses_service(image_bytes: bytes) -> bytes:
+def remove_glasses_service(image_bytes: bytes) -> str:
     """
     Sends image to Gemini to remove glasses.
-    Returns the edited PNG bytes.
+    Returns Base64 string directly for frontend display.
     """
     client = get_gemini_client()
-
     base64_image = png_to_base64(image_bytes)
 
     prompt = (
@@ -31,30 +25,28 @@ def remove_glasses_service(image_bytes: bytes) -> bytes:
         "Preserve identity, skin texture, lighting, and facial structure."
     )
 
-    # *** CORRECT CALL FOR NEW GOOGLE SDK ***
     response = client.models.generate_content(
         model="gemini-2.5-flash-image",
-        contents=[
-            {
-                "parts": [
-                    {"text": prompt},
-                    {"inlineData": {"mimeType": "image/png", "data": base64_image}}
-                ]
-            }
-        ]
+        contents=[{
+            "parts": [
+                {"text": prompt},
+                {"inlineData": {"mimeType": "image/png", "data": base64_image}}
+            ]
+        }]
     )
 
-    print("Gemini response:", response)
-
-    # Extract image part
+    # Extract the edited image Base64
     edited_base64 = None
-
     for part in response.candidates[0].content.parts:
-        if hasattr(part, "inline_data") and part.inline_data:
+        if getattr(part, "inlineData", None):
+            edited_base64 = part.inlineData.data
+            break
+        elif getattr(part, "inline_data", None):
             edited_base64 = part.inline_data.data
             break
 
     if not edited_base64:
         raise Exception("Gemini did not return an edited image")
 
-    return base64_to_png(edited_base64)
+    # Return Base64 string directly — do not use Pillow
+    return edited_base64
