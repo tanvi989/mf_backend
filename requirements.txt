@@ -13,3 +13,5 @@ dlib
 google-genai
 python-dotenv
 protobuf
+google-cloud-storage
+motor
