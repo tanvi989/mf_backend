@@ -1,18 +1,38 @@
 import os
-from google.cloud import storage
-from datetime import timedelta
 import uuid
+from datetime import timedelta
+from app.utils.settings import settings
 
-BUCKET_NAME = os.getenv("BUCKET_NAME", "multifolks")
-BASE_PATH = os.getenv("GCS_BASE_PATH", "vto")
+os.environ.setdefault(
+    "GOOGLE_APPLICATION_CREDENTIALS",
+    settings.GOOGLE_APPLICATION_CREDENTIALS
+)
+from google.cloud import storage
 
-# print("BUCKET_NAME:", BUCKET_NAME)
-# print("GCS_BASE_PATH:", BASE_PATH)
+# =========================
+# CONFIG
+# =========================
+BUCKET_NAME = settings.BUCKET_NAME
+BASE_PATH = settings.FOLDER_NAME  # use FOLDER_NAME consistently
 
-client = storage.Client()
-bucket = client.bucket(BUCKET_NAME)
+CONTENT_TYPES = {
+    "jpg": "image/jpeg",
+    "jpeg": "image/jpeg",
+    "png": "image/png",
+    "webp": "image/webp"
+}
 
+# =========================
+# GCS CLIENT
+# =========================
+client = storage.Client(project=settings.GCP_PROJECT_ID)
 
+# For Requester Pays bucket, pass user_project
+bucket = client.bucket(BUCKET_NAME, user_project=settings.GCP_PROJECT_ID)
+
+# =========================
+# UPLOAD FUNCTION
+# =========================
 def upload_image_and_get_url(
     file_bytes: bytes,
     guest_id: str,
@@ -21,25 +41,32 @@ def upload_image_and_get_url(
     ext: str = "jpg",
     expiry_minutes: int = 60
 ):
+    # Normalize extension
+    ext = ext.lower().replace(".", "")
+    if ext not in CONTENT_TYPES:
+        raise ValueError(f"Unsupported image type: {ext}")
+
     filename = f"{uuid.uuid4()}.{ext}"
-
-    blob_path = (
-        f"{BASE_PATH}/{guest_id}/{session_id}/{stage}/{filename}"
-    )
-
+    blob_path = f"{BASE_PATH}/{guest_id}/{session_id}/{stage}/{filename}"
+    
+    # Create the blob with user_project automatically
     blob = bucket.blob(blob_path)
 
+    # Upload image
     blob.upload_from_string(
         file_bytes,
-        content_type=f"image/{ext}"
+        content_type=CONTENT_TYPES[ext]
     )
 
+    # Generate signed URL
     signed_url = blob.generate_signed_url(
+        version="v4",
         expiration=timedelta(minutes=expiry_minutes),
         method="GET"
     )
 
     return {
+        "bucket_name": BUCKET_NAME,
         "bucket_path": blob_path,
         "signed_url": signed_url
     }

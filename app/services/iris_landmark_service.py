@@ -305,11 +305,5 @@ class IrisLandmarkService:
                 "nose_bridge_left": round(nose_bridge_left_mm, 1),
                 "nose_bridge_right": round(nose_bridge_right_mm, 1)
             },
-            "face_shape": face_shape,
-            "debug": {
-                "pd_error_mm": round(
-                    (left_pd_mm + right_pd_mm) - pd_mm, 2
-                ),
-                "expected_accuracy": "±1–2 mm"
-            }
+            "face_shape": face_shape
         }

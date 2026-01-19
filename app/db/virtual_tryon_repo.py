@@ -1,0 +1,112 @@
+from datetime import datetime
+from fastapi import UploadFile, File
+from app.db.mongo import virtual_tryons
+
+# 🔹 INSERT (ONLY ONCE)
+async def insert_tryon(
+    guest_id: str,
+    session_id: str,
+    detection: dict
+):
+    await virtual_tryons.insert_one({
+        "guest_id": guest_id,
+        "session_id": session_id,
+
+        "images": {},
+        "measurements": {},
+
+        "glasses": detection,
+
+        "status": {
+            "detected": True,
+            "glasses_removed": False,
+            "measurements_done": False
+        },
+
+        "created_at": datetime.utcnow(),
+        "updated_at": datetime.utcnow()
+    })
+
+
+# 🔹 UPDATE HELPERS
+async def update_tryon(
+    guest_id: str,
+    session_id: str,
+    update_data: dict
+):
+    await virtual_tryons.update_one(
+        {"guest_id": guest_id, "session_id": session_id},
+        {
+            "$set": update_data,
+            "$currentDate": {"updated_at": True}
+        }
+    )
+
+
+async def update_measurements(
+    guest_id: str,
+    session_id: str,
+    mm: dict,
+    face_shape: str
+):
+    now = datetime.utcnow()
+
+    await virtual_tryons.update_one(
+        {
+            "guest_id": guest_id,
+            "session_id": session_id
+        },
+        {
+            "$set": {
+                "measurements.mm": mm,
+                "measurements.face_shape": face_shape,
+                "status.measurements_done": True,
+                "updated_at": now
+            }
+        },
+        upsert=False  # detect API must run first
+    )
+
+async def get_virtual_tryon_by_session(
+    guest_id: str,
+    session_id: str
+):
+    return await virtual_tryons.find_one(
+        {
+            "guest_id": guest_id,
+            "session_id": session_id
+        },
+        {
+            "_id": 0  # hide mongo id
+        }
+    )
+
+async def save_selected_frame(
+    guest_id: str,
+    session_id: str,
+    frame_id: str,
+    frame_name: str,
+    frame_image: UploadFile = File(...),
+):
+    now = datetime.utcnow()
+
+    result = await virtual_tryons.update_one(
+        {
+            "guest_id": guest_id,
+            "session_id": session_id
+        },
+        {
+            "$set": {
+                "selected_frame": {
+                    "frame_id": frame_id,
+                    "frame_name": frame_name,
+                    "frame_image": frame_image,
+                    "selected_at": now
+                },
+                "status.frame_selected": True,
+                "updated_at": now
+            }
+        }
+    )
+
+    return result.matched_count > 0
