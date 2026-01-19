@@ -86,7 +86,9 @@ async def save_selected_frame(
     session_id: str,
     frame_id: str,
     frame_name: str,
-    frame_image: UploadFile = File(...),
+    frame_dims: dict,
+    fitting_height: float,
+    frame_image_url: str
 ):
     now = datetime.utcnow()
 
@@ -100,7 +102,9 @@ async def save_selected_frame(
                 "selected_frame": {
                     "frame_id": frame_id,
                     "frame_name": frame_name,
-                    "frame_image": frame_image,
+                    "dimensions": frame_dims,
+                    "fitting_height": fitting_height,
+                    "frame_image_url": frame_image_url,
                     "selected_at": now
                 },
                 "status.frame_selected": True,
@@ -110,3 +114,24 @@ async def save_selected_frame(
     )
 
     return result.matched_count > 0
+
+async def get_face_height(
+    guest_id: str,
+    session_id: str
+):
+    doc = await virtual_tryons.find_one(
+        {
+            "guest_id": guest_id,
+            "session_id": session_id,
+            "status.measurements_done": True
+        },
+        {
+            "_id": 0,
+            "measurements.mm.face_height": 1
+        }
+    )
+
+    if not doc:
+        return None
+
+    return doc["measurements"]["mm"]["face_height"]
