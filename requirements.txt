@@ -1,5 +1,6 @@
 fastapi
 uvicorn[standard]
+pydantic-settings
 python-multipart
 torch
 torchvision
@@ -8,8 +9,9 @@ pillow
 opencv-python
 numpy
 mediapipe
+onnxruntime
 scikit-image
-dlib
+# dlib: optional legacy 68-point landmarks (landmark_service.py); requires CMake + MSVC to build on Windows
 google-genai
 python-dotenv
 protobuf

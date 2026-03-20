@@ -137,6 +137,9 @@ celerybeat.pid
 # Environments
 .env
 .envrc
+
+# GCP keys and local secrets (never commit)
+secrets/
 .venv
 env/
 venv/
@@ -200,6 +203,11 @@ cython_debug/
 #  refer to https://docs.cursor.com/context/ignore-files
 .cursorignore
 .cursorindexingignore
+
+# Downloaded ONNX weights
+app/models/gender_onnx/
+app/models/pd_hf_onnx/
+app/models/age_onnx/
 
 # Marimo
 marimo/_static/

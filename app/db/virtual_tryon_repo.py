@@ -1,4 +1,6 @@
 from datetime import datetime
+from typing import Optional
+
 from fastapi import UploadFile, File
 from app.db.mongo import virtual_tryons
 
@@ -47,24 +49,30 @@ async def update_measurements(
     guest_id: str,
     session_id: str,
     mm: dict,
-    face_shape: str
+    face_shape: str,
+    gender: Optional[dict] = None,
+    eyewear: Optional[dict] = None,
+    client_capture: Optional[dict] = None,
 ):
     now = datetime.utcnow()
 
+    fields = {
+        "measurements.mm": mm,
+        "measurements.face_shape": face_shape,
+        "status.measurements_done": True,
+        "updated_at": now,
+    }
+    if gender is not None:
+        fields["measurements.gender"] = gender
+    if eyewear is not None:
+        fields["measurements.eyewear"] = eyewear
+    if client_capture is not None:
+        fields["measurements.client_capture"] = client_capture
+
     await virtual_tryons.update_one(
-        {
-            "guest_id": guest_id,
-            "session_id": session_id
-        },
-        {
-            "$set": {
-                "measurements.mm": mm,
-                "measurements.face_shape": face_shape,
-                "status.measurements_done": True,
-                "updated_at": now
-            }
-        },
-        upsert=False  # detect API must run first
+        {"guest_id": guest_id, "session_id": session_id},
+        {"$set": fields},
+        upsert=False,  # detect API must run first
     )
 
 async def get_virtual_tryon_by_session(

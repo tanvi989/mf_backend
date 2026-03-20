@@ -19,9 +19,10 @@ class Settings(BaseSettings):
     GEMINI_API_KEY: str | None = None
     GOOGLE_API_KEY: str | None = None
 
-    class Config:
-        env_file = BASE_DIR / ".env"
-        env_file_encoding = "utf-8"
+    model_config = {
+        "env_file": BASE_DIR / ".env",
+        "env_file_encoding": "utf-8"
+    }
 
 
 settings = Settings()
