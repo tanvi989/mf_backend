@@ -208,6 +208,7 @@ cython_debug/
 app/models/gender_onnx/
 app/models/pd_hf_onnx/
 app/models/age_onnx/
+app/models/emotion_onnx/
 
 # Marimo
 marimo/_static/

@@ -5,6 +5,7 @@ from fastapi import APIRouter, File, Form, UploadFile
 
 from app.db.virtual_tryon_repo import update_measurements
 from app.services.age_service import predict_age_from_bytes
+from app.services.emotion_service import predict_emotion_from_bytes
 from app.services.credit_card_measurement_service import CreditCardMeasurementService
 from app.services.eyewear_insights_service import build_eyewear_insights
 from app.services.gender_service import predict_gender_from_bytes
@@ -88,6 +89,22 @@ async def detect_landmarks(
         result["gender"] = gender
 
         try:
+            emotion = predict_emotion_from_bytes(
+                gsrc,
+                landmark_points=points if gsrc is image_bytes else None,
+            )
+        except Exception as ee:
+            emotion = {
+                "label": "unknown",
+                "confidence": 0.0,
+                "low_confidence": True,
+                "model": None,
+                "error": str(ee)[:200],
+            }
+        emotion = _json_safe(emotion)
+        result["emotion"] = emotion
+
+        try:
             eyewear = build_eyewear_insights(
                 result["mm"],
                 result.get("scale") or {},
@@ -133,6 +150,7 @@ async def detect_landmarks(
             face_shape=str(result["face_shape"]),
             gender=gender,
             eyewear=eyewear,
+            emotion=emotion,
             client_capture=result.get("client_capture"),
         )
 

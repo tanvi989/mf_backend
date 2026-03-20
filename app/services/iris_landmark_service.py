@@ -1,11 +1,13 @@
 from __future__ import annotations
 
 import io
+import json
 import math
+import os
 import threading
 import urllib.request
 from pathlib import Path
-from typing import Optional
+from typing import Any, Optional
 
 import cv2
 import numpy as np
@@ -82,6 +84,195 @@ def _decode_rgb(image_bytes: bytes) -> np.ndarray:
 
 def _euclid_px(a: tuple[float, float], b: tuple[float, float]) -> float:
     return float(math.hypot(a[0] - b[0], a[1] - b[1]))
+
+
+def _trace_float(x: Any) -> float:
+    try:
+        return float(x)
+    except (TypeError, ValueError):
+        return float("nan")
+
+
+def _build_pd_calculation_trace(
+    *,
+    image_w: int,
+    image_h: int,
+    left_iris_center_px: tuple[float, float],
+    right_iris_center_px: tuple[float, float],
+    iris_diameter_left_px: float,
+    iris_diameter_right_px: float,
+    iris_diameter_mean_px: float,
+    pd_px_horizontal: float,
+    pd_px_euclidean: float,
+    eye_dy_px: float,
+    face_width_cheek_px: float,
+    level_ratio: float,
+    pd_geometry: str,
+    pd_px_used: float,
+    pd_hint_mm: Optional[float],
+    scale_extra: dict,
+    pd_mm_before_round: float,
+    pd_mm_rounded_half_mm: float,
+    ratio_ok: bool,
+    extra_scale_keys: Optional[dict] = None,
+) -> dict[str, Any]:
+    """End-to-end PD math for API `debug.pd_calculation_trace` + optional server stdout."""
+    s_face = KNOWN_FACE_WIDTH_MM / max(face_width_cheek_px, 1e-6)
+    s_iris = IRIS_DIAMETER_MM / max(iris_diameter_mean_px, 1e-3)
+    pd_iris = pd_px_used * s_iris
+    pd_face = pd_px_used * s_face
+    disagree = abs(pd_iris - pd_face)
+    fw_mm_iris = face_width_cheek_px * s_iris
+    prior_pd = IPD_TO_FACE_WIDTH_PRIOR * fw_mm_iris
+
+    formulas = [
+        "STEP A — Image & landmarks (MediaPipe Face Landmarker, full-res px):",
+        f"  image_size_px = {image_w} × {image_h}",
+        "STEP B — Iris ring → centre (mean of 5 pts) & diameter (min enclosing circle):",
+        f"  left_iris_center_px  = ({left_iris_center_px[0]:.2f}, {left_iris_center_px[1]:.2f})",
+        f"  right_iris_center_px = ({right_iris_center_px[0]:.2f}, {right_iris_center_px[1]:.2f})",
+        f"  iris_diameter_left_px  = {iris_diameter_left_px:.3f}",
+        f"  iris_diameter_right_px = {iris_diameter_right_px:.3f}",
+        f"  iris_diameter_mean_px = (L+R)/2 = {iris_diameter_mean_px:.3f}",
+        "STEP C — IPD chord in pixels (same image coordinates):",
+        f"  pd_px_horizontal = |left_cx - right_cx| = {pd_px_horizontal:.3f}",
+        f"  pd_px_euclidean  = hypot(Δx,Δy) between iris centres = {pd_px_euclidean:.3f}",
+        f"  eye_vertical_delta_px = |left_cy - right_cy| = {eye_dy_px:.3f}",
+        f"  face_width_cheek_px = euclidean(cheek 234, cheek 454) = {face_width_cheek_px:.3f}",
+        f"  level_ratio = eye_dy / face_width_cheek = {level_ratio:.5f} (threshold 0.028)",
+    ]
+    if pd_geometry == "horizontal_primary":
+        formulas.append(
+            "  pd_px_used = 0.88 × pd_px_horizontal + 0.12 × pd_px_euclidean  "
+            f"(eyes level) = {pd_px_used:.3f}"
+        )
+    else:
+        formulas.append(f"  pd_px_used = pd_px_euclidean (tilted head) = {pd_px_used:.3f}")
+
+    formulas.extend(
+        [
+            "STEP D — Two mm/px rulers (anthropometric priors):",
+            f"  s_iris = IRIS_DIAMETER_MM / iris_diameter_mean_px = {IRIS_DIAMETER_MM} / {iris_diameter_mean_px:.3f} = {s_iris:.6f} mm/px",
+            f"  s_face = KNOWN_FACE_WIDTH_MM / face_width_cheek_px = {KNOWN_FACE_WIDTH_MM} / {face_width_cheek_px:.2f} = {s_face:.6f} mm/px",
+            "STEP E — PD in mm from each ruler:",
+            f"  pd_iris_mm = pd_px_used × s_iris = {pd_iris:.3f}",
+            f"  pd_face_mm = pd_px_used × s_face = {pd_face:.3f}",
+            f"  |pd_iris - pd_face| = {disagree:.3f} mm (disagree threshold {PD_IRIS_FACE_DISAGREE_MM} mm)",
+        ]
+    )
+
+    mode = scale_extra.get("pd_method", "?")
+    if disagree > PD_IRIS_FACE_DISAGREE_MM:
+        formulas.append(f"  → pd_mm = pd_iris only (iris_only), blend weight face = 0")
+    else:
+        formulas.append(
+            f"  → pd_mm = (1-{FACE_PD_BLEND})×pd_iris + {FACE_PD_BLEND}×pd_face "
+            f"(iris_face_blend)"
+        )
+
+    formulas.extend(
+        [
+            "STEP F — Face-width prior on IPD (light):",
+            f"  face_width_mm_iris_ruler = fw_px × s_iris = {fw_mm_iris:.2f}",
+            f"  prior_pd_mm = IPD_TO_FACE_WIDTH_PRIOR × face_width_mm_iris_ruler "
+            f"({IPD_TO_FACE_WIDTH_PRIOR:.5f} ≈ 62.5/145) = {prior_pd:.2f}",
+            f"  pd_mm = (1-{PRIOR_BLEND_MM})×pd_after_step_E + {PRIOR_BLEND_MM}×prior_pd_mm",
+        ]
+    )
+
+    hint_applied = scale_extra.get("pd_client_hint_mm")
+    hint_ignored = scale_extra.get("pd_client_hint_ignored_mm")
+    if hint_applied is not None:
+        formulas.append(
+            f"STEP G — Browser pd_hint_mm = {hint_applied}: blended in at weight {HINT_BLEND} "
+            f"(within ±{HINT_MAX_DELTA_MM} mm of server PD)."
+        )
+    elif hint_ignored is not None:
+        formulas.append(
+            f"STEP G — Browser pd_hint_mm = {hint_ignored} ignored (outside ±{HINT_MAX_DELTA_MM} mm or range)."
+        )
+    elif pd_hint_mm is not None and math.isfinite(float(pd_hint_mm)):
+        formulas.append(f"STEP G — pd_hint_mm was present but not applied (see scale metadata).")
+    else:
+        formulas.append("STEP G — No client pd_hint_mm for this request.")
+
+    formulas.extend(
+        [
+            f"STEP H — Final continuous PD mm ≈ {_trace_float(pd_mm_before_round):.4f}",
+            f"STEP I — Display PD = round(pd_mm×2)/2 to 0.5 mm → {pd_mm_rounded_half_mm}",
+            f"STEP J — Global mm/px for face chords: s = pd_mm / pd_px_used = {_trace_float(pd_mm_before_round) / max(pd_px_used, 1e-9):.6f}",
+            "STEP K — Sanity: IPD_px / iris_diam_px ratio should be ~5–7 frontal:",
+            f"  ratio = {pd_px_used / max(iris_diameter_mean_px, 1e-6):.3f} → reliability {'high' if ratio_ok else 'low'}",
+        ]
+    )
+
+    trace: dict[str, Any] = {
+        "summary": "Primary binocular PD from iris centres; scale = iris diameter (11.77 mm) with optional face-width blend and light prior; optional browser hint.",
+        "constants": {
+            "IRIS_DIAMETER_MM": IRIS_DIAMETER_MM,
+            "KNOWN_FACE_WIDTH_MM": KNOWN_FACE_WIDTH_MM,
+            "IPD_TO_FACE_WIDTH_PRIOR": round(IPD_TO_FACE_WIDTH_PRIOR, 6),
+            "FACE_PD_BLEND": FACE_PD_BLEND,
+            "PRIOR_BLEND_MM": PRIOR_BLEND_MM,
+            "PD_IRIS_FACE_DISAGREE_MM": PD_IRIS_FACE_DISAGREE_MM,
+            "HINT_BLEND": HINT_BLEND,
+            "HINT_MAX_DELTA_MM": HINT_MAX_DELTA_MM,
+            "CALIB_DISTANCE_MM_UI_hint": CALIB_DISTANCE_MM,
+        },
+        "pixels": {
+            "image_width": image_w,
+            "image_height": image_h,
+            "left_iris_center": [round(left_iris_center_px[0], 2), round(left_iris_center_px[1], 2)],
+            "right_iris_center": [round(right_iris_center_px[0], 2), round(right_iris_center_px[1], 2)],
+            "iris_diameter_left": round(iris_diameter_left_px, 3),
+            "iris_diameter_right": round(iris_diameter_right_px, 3),
+            "iris_diameter_mean": round(iris_diameter_mean_px, 3),
+            "pd_px_horizontal": round(pd_px_horizontal, 3),
+            "pd_px_euclidean": round(pd_px_euclidean, 3),
+            "pd_px_used": round(pd_px_used, 3),
+            "face_width_cheek_px": round(face_width_cheek_px, 2),
+            "eye_vertical_delta_px": round(eye_dy_px, 3),
+            "level_ratio": round(level_ratio, 6),
+            "pd_geometry": pd_geometry,
+        },
+        "intermediate_mm": {
+            "s_iris_mm_per_px": round(s_iris, 6),
+            "s_face_mm_per_px": round(s_face, 6),
+            "pd_iris_mm": round(pd_iris, 3),
+            "pd_face_mm": round(pd_face, 3),
+            "pd_method": mode,
+            "prior_pd_mm": round(prior_pd, 3),
+            "pd_mm_before_round": round(pd_mm_before_round, 4),
+            "pd_mm_display_half_step": pd_mm_rounded_half_mm,
+            "ipd_px_over_iris_diam_px": round(
+                pd_px_used / max(iris_diameter_mean_px, 1e-6), 3
+            ),
+        },
+        "scale_extra_echo": {k: v for k, v in scale_extra.items() if k != "mm_per_pixel"},
+        "formulas_plaintext": formulas,
+    }
+
+    if extra_scale_keys:
+        trace["hf_and_extra_scale"] = {
+            k: v for k, v in extra_scale_keys.items()
+            if k.startswith("pd_hf") or k in ("pd_hf_model", "pd_hf_method", "pd_hf_note")
+        }
+
+    return trace
+
+
+def _maybe_stdout_pd_trace(trace: dict[str, Any]) -> None:
+    if os.environ.get("PD_TRACE_PRINT", "").strip().lower() not in ("1", "true", "yes"):
+        return
+    try:
+        print(
+            "\n========== PD_CALCULATION_TRACE ==========\n",
+            json.dumps(trace, indent=2, default=str),
+            "\n==========================================\n",
+            flush=True,
+        )
+    except Exception:
+        pass
 
 
 def _iris_center_and_diameter_px(
@@ -347,6 +538,32 @@ class IrisLandmarkService:
             out["mm"]["pd_hf_right"] = None
             out["scale"]["pd_hf_model"] = "insightface_2d106det · Hugging Face ONNX"
             out["scale"]["pd_hf_error"] = str(ex)[:200]
+
+        extra_hf = {k: v for k, v in out["scale"].items() if str(k).startswith("pd_hf")}
+        pd_calc_trace = _build_pd_calculation_trace(
+            image_w=int(w),
+            image_h=int(h),
+            left_iris_center_px=(float(l_cx), float(l_cy)),
+            right_iris_center_px=(float(r_cx), float(r_cy)),
+            iris_diameter_left_px=float(l_diam),
+            iris_diameter_right_px=float(r_diam),
+            iris_diameter_mean_px=float(iris_mean_diam_px),
+            pd_px_horizontal=float(pd_px_horiz),
+            pd_px_euclidean=float(pd_px_eucl),
+            eye_dy_px=float(eye_dy),
+            face_width_cheek_px=float(fw_px),
+            level_ratio=float(level_ratio),
+            pd_geometry=str(pd_geom),
+            pd_px_used=float(pd_px),
+            pd_hint_mm=pd_hint_mm,
+            scale_extra=dict(scale_extra),
+            pd_mm_before_round=float(pd_mm),
+            pd_mm_rounded_half_mm=float(out["mm"]["pd"]),
+            ratio_ok=bool(ratio_ok),
+            extra_scale_keys=extra_hf,
+        )
+        _maybe_stdout_pd_trace(pd_calc_trace)
+        out["debug"]["pd_calculation_trace"] = pd_calc_trace
 
         out["_landmark_points_xy"] = pts
         return out

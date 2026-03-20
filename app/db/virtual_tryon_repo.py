@@ -52,6 +52,7 @@ async def update_measurements(
     face_shape: str,
     gender: Optional[dict] = None,
     eyewear: Optional[dict] = None,
+    emotion: Optional[dict] = None,
     client_capture: Optional[dict] = None,
 ):
     now = datetime.utcnow()
@@ -66,6 +67,8 @@ async def update_measurements(
         fields["measurements.gender"] = gender
     if eyewear is not None:
         fields["measurements.eyewear"] = eyewear
+    if emotion is not None:
+        fields["measurements.emotion"] = emotion
     if client_capture is not None:
         fields["measurements.client_capture"] = client_capture
 

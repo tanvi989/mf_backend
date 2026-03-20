@@ -190,6 +190,45 @@ def _largest_face_roi_bgr(bgr: np.ndarray) -> np.ndarray:
     return bgr[y1 : y2 + 1, x1 : x2 + 1]
 
 
+def _predict_gender_googlenet(face_bgr_224: np.ndarray) -> dict:
+    """Levi/Adience GoogLeNet — fast but can misread harsh shadows / low light vs FairFace."""
+    if face_bgr_224.shape[:2] != (224, 224):
+        face_bgr_224 = cv2.resize(face_bgr_224, (224, 224))
+    blob = cv2.dnn.blobFromImage(
+        face_bgr_224, scalefactor=1.0, size=(224, 224), mean=(104, 117, 123), swapRB=False
+    )
+    sess = _session()
+    inp_name = sess.get_inputs()[0].name
+    out = sess.run(None, {inp_name: blob})[0]
+    logits = np.asarray(out).reshape(-1)
+    if logits.size < 2:
+        return {
+            "label": "unknown",
+            "confidence": 0.0,
+            "low_confidence": True,
+            "model": "googlenet_gender_adience_onnx",
+            "error": "Unexpected model output shape",
+        }
+    z = logits - float(np.max(logits))
+    e = np.exp(np.clip(z, -40.0, 40.0))
+    probs = (e / max(float(e.sum()), 1e-9)).astype(np.float64)
+    idx = int(np.argmax(probs))
+    conf = float(probs[idx])
+    label = _GENDER_LABELS[idx] if 0 <= idx < len(_GENDER_LABELS) else "unknown"
+    return {
+        "label": label,
+        "confidence": round(conf, 3),
+        "low_confidence": conf < 0.55,
+        "model": "googlenet_gender_adience_onnx",
+        "prob_male": round(float(probs[0]), 4) if probs.size > 1 else None,
+        "prob_female": round(float(probs[1]), 4) if probs.size > 1 else None,
+    }
+
+
+# When both models run: if they disagree, prefer FairFace above this confidence (better on diverse retail photos).
+_FAIRFACE_DISAGREE_MIN_CONF = 0.50
+
+
 def predict_gender_from_bytes(
     image_bytes: bytes,
     landmark_points: Optional[List[Tuple[int, int]]] = None,
@@ -205,7 +244,6 @@ def predict_gender_from_bytes(
             "error": str(e)[:200],
         }
 
-    H, W = bgr.shape[:2]
     try:
         if landmark_points and len(landmark_points) >= 468:
             face = _face_roi_from_landmarks(bgr, landmark_points)
@@ -214,49 +252,46 @@ def predict_gender_from_bytes(
     except Exception:
         face = _largest_face_roi_bgr(bgr)
 
-    face = cv2.resize(face, (224, 224))
-    # Model zoo gender GoogLeNet: blob = NCHW BGR, scale 1, mean (104, 117, 123)
-    blob = cv2.dnn.blobFromImage(
-        face, scalefactor=1.0, size=(224, 224), mean=(104, 117, 123), swapRB=False
-    )
+    face_224 = cv2.resize(face, (224, 224))
 
-    sess = _session()
-    inp_name = sess.get_inputs()[0].name
-    out = sess.run(None, {inp_name: blob})[0]
-    logits = np.asarray(out).reshape(-1)
-    if logits.size < 2:
+    res_gl = _predict_gender_googlenet(face_224)
+
+    res_ff: Optional[dict] = None
+    try:
+        res_ff = _predict_gender_fairface_onnx(face_224)
+    except Exception:
+        res_ff = None
+
+    if not res_ff or res_ff.get("label") == 'unknown':
+        return res_gl
+
+    ff_label = str(res_ff.get('label', 'unknown'))
+    gl_label = str(res_gl.get('label', 'unknown'))
+    ff_c = float(res_ff.get('confidence') or 0.0)
+    gl_c = float(res_gl.get('confidence') or 0.0)
+
+    if ff_label == gl_label:
+        if ff_c >= gl_c:
+            return {
+                **res_ff,
+                'model': 'fairface_gender_image_detection_onnx + googlenet_agree',
+            }
         return {
-            "label": "unknown",
-            "confidence": 0.0,
-            "low_confidence": True,
-            "model": "googlenet_gender_adience_onnx",
-            "error": "Unexpected model output shape",
+            **res_gl,
+            'model': 'googlenet_gender_adience_onnx + fairface_agree',
         }
 
-    z = logits - float(np.max(logits))
-    e = np.exp(np.clip(z, -40.0, 40.0))
-    probs = (e / max(float(e.sum()), 1e-9)).astype(np.float64)
-    idx = int(np.argmax(probs))
-    conf = float(probs[idx])
-    label = _GENDER_LABELS[idx] if 0 <= idx < len(_GENDER_LABELS) else "unknown"
-    res = {
-        "label": label,
-        "confidence": round(conf, 3),
-        "low_confidence": conf < 0.55,
-        "model": "googlenet_gender_adience_onnx",
-        "prob_male": round(float(probs[0]), 4) if probs.size > 1 else None,
-        "prob_female": round(float(probs[1]), 4) if probs.size > 1 else None,
+    # Disagree: FairFace is generally more robust to lighting / pose for merchandising UX.
+    if ff_c >= _FAIRFACE_DISAGREE_MIN_CONF:
+        return {
+            **res_ff,
+            'low_confidence': ff_c < 0.60 or abs(ff_c - gl_c) < 0.12,
+            'model': 'fairface_gender_image_detection_onnx (overrode googlenet_adience)',
+        }
+
+    # FairFace too unsure — keep GoogLeNet but mark as low trust when they disagree
+    return {
+        **res_gl,
+        'low_confidence': True,
+        'model': 'googlenet_gender_adience_onnx (fairface_disagreed_low_conf)',
     }
-
-    # If GoogLeNet is unsure, fall back to a FairFace-based gender classifier.
-    if res["low_confidence"]:
-        try:
-            face_224 = cv2.resize(face, (224, 224))
-            res2 = _predict_gender_fairface_onnx(face_224)
-            # Prefer the fallback if it is more confident or the first was "unknown".
-            if res2.get("label") != "unknown" and res2.get("confidence", 0.0) >= res.get("confidence", 0.0):
-                return res2
-        except Exception:
-            pass
-
-    return res
